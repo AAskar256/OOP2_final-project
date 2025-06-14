@@ -3,20 +3,19 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from datetime import timedelta
 from ..database import get_db
-from ..models import User
-from ..schemas import Token, UserCreate, User
+from ..models import User as UserModel
+from ..schemas import Token, UserCreate, User as UserSchema
 from ..services.auth import (
     get_password_hash,
     create_access_token,
     authenticate_user,
     get_current_active_user,
-    get_current_admin_user
 )
 from ..config import settings
 
 router = APIRouter(
     prefix="/auth",
-    tags=["auth"]
+    tags=["Authentication"]
 )
 
 @router.post("/token", response_model=Token)
@@ -37,22 +36,22 @@ async def login_for_access_token(
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
-@router.post("/register", response_model=User)
+@router.post("/register", response_model=UserSchema)
 async def register_user(user: UserCreate, db: Session = Depends(get_db)):
-    db_user = db.query(User).filter(User.email == user.email).first()
+    db_user = db.query(UserModel).filter(UserModel.email == user.email).first()
     if db_user:
         raise HTTPException(status_code=400, detail="Email already registered")
     hashed_password = get_password_hash(user.password)
-    db_user = User(
+    new_user = UserModel(
         email=user.email,
         hashed_password=hashed_password,
-        full_name=user.full_name
+        full_name=user.full_name,
     )
-    db.add(db_user)
+    db.add(new_user)
     db.commit()
-    db.refresh(db_user)
-    return db_user
+    db.refresh(new_user)
+    return new_user
 
-@router.get("/me", response_model=User)
-async def read_users_me(current_user: User = Depends(get_current_active_user)):
+@router.get("/me", response_model=UserSchema)
+async def read_users_me(current_user: UserModel = Depends(get_current_active_user)):
     return current_user
