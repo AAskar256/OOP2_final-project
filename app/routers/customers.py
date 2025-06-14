@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
 from ..database import get_db
-from ..models import User
-from ..schemas import User
+from ..models import User as UserModel
+from ..schemas import User as UserSchema
 from ..utils.auth import get_current_active_user, get_current_admin_user
 
 router = APIRouter(
@@ -11,51 +11,53 @@ router = APIRouter(
     tags=["customers"]
 )
 
-@router.get("/", response_model=List[User])
+
+def get_customer_or_404(db: Session, customer_id: int) -> UserModel:
+    customer = db.query(UserModel).filter(UserModel.id == customer_id, UserModel.role == "customer").first()
+    if customer is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Customer not found")
+    return customer
+
+@router.get("/", response_model=List[UserSchema])
 def read_customers(
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user)
+    current_user: UserModel = Depends(get_current_admin_user)
 ):
-    customers = db.query(User).filter(User.role == "customer").offset(skip).limit(limit).all()
-    return customers
+    return db.query(UserModel).filter(UserModel.role == "customer").offset(skip).limit(limit).all()
 
-@router.get("/{customer_id}", response_model=User)
+@router.get("/{customer_id}", response_model=UserSchema)
 def read_customer(
     customer_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: UserModel = Depends(get_current_active_user)
 ):
+    customer = get_customer_or_404(db, customer_id)
     if current_user.role != "admin" and current_user.id != customer_id:
-        raise HTTPException(status_code=403, detail="Can only view your own profile")
-    customer = db.query(User).filter(User.id == customer_id, User.role == "customer").first()
-    if customer is None:
-        raise HTTPException(status_code=404, detail="Customer not found")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to view this profile.")
     return customer
 
-@router.put("/{customer_id}/activate")
+@router.put("/{customer_id}/activate", response_model=UserSchema)
 def activate_customer(
     customer_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user)
+    current_user: UserModel = Depends(get_current_admin_user)
 ):
-    customer = db.query(User).filter(User.id == customer_id, User.role == "customer").first()
-    if customer is None:
-        raise HTTPException(status_code=404, detail="Customer not found")
+    customer = get_customer_or_404(db, customer_id)
     customer.is_active = True
     db.commit()
-    return {"message": "Customer activated successfully"}
+    db.refresh(customer)
+    return customer
 
-@router.put("/{customer_id}/deactivate")
+@router.put("/{customer_id}/deactivate", response_model=UserSchema)
 def deactivate_customer(
     customer_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user)
+    current_user: UserModel = Depends(get_current_admin_user)
 ):
-    customer = db.query(User).filter(User.id == customer_id, User.role == "customer").first()
-    if customer is None:
-        raise HTTPException(status_code=404, detail="Customer not found")
+    customer = get_customer_or_404(db, customer_id)
     customer.is_active = False
     db.commit()
-    return {"message": "Customer deactivated successfully"}
+    db.refresh(customer)
+    return customer
